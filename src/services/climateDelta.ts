@@ -56,6 +56,17 @@ export function getDeltaForLocation(
   return parseFloat(interpolated.toFixed(1));
 }
 
+/** Convenience: return deltas for both scenarios at once (needed by chart view). */
+export function getBothDeltas(
+  latitude: number,
+  longitude: number
+): { ssp245: number; ssp585: number } {
+  return {
+    ssp245: getDeltaForLocation(latitude, longitude, 'ssp245'),
+    ssp585: getDeltaForLocation(latitude, longitude, 'ssp585'),
+  };
+}
+
 /** Find the index of the last element ≥ value (descending) or ≤ value (ascending). */
 function findIndex(arr: number[], value: number, descending: boolean): number {
   if (descending) {

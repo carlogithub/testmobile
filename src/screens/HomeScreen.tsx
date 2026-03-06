@@ -8,11 +8,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DayForecast, LocationInfo, Scenario } from '../types';
 import { getCurrentLocation } from '../services/locationService';
 import { fetchForecast, weatherCodeToDisplay } from '../services/weatherApi';
-import { getDeltaForLocation } from '../services/climateDelta';
+import { getDeltaForLocation, getBothDeltas } from '../services/climateDelta';
 import DayForecastRow from '../components/DayForecastRow';
 import ScenarioToggle from '../components/ScenarioToggle';
+import TempChart from '../components/TempChart';
 
 type Status = 'idle' | 'loading' | 'error' | 'ready';
+type ViewMode = 'list' | 'chart';
 
 export default function HomeScreen() {
   const [status, setStatus]     = useState<Status>('idle');
@@ -20,6 +22,7 @@ export default function HomeScreen() {
   const [location, setLocation] = useState<LocationInfo | null>(null);
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [scenario, setScenario] = useState<Scenario>('ssp245');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -55,6 +58,10 @@ export default function HomeScreen() {
   const delta = location
     ? getDeltaForLocation(location.latitude, location.longitude, scenario)
     : 0;
+
+  const bothDeltas = location
+    ? getBothDeltas(location.latitude, location.longitude)
+    : { ssp245: 0, ssp585: 0 };
 
   const today    = forecast[0];
   const restDays = forecast.slice(1);
@@ -99,8 +106,21 @@ export default function HomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.locationName}>{location?.cityName}</Text>
-          <Text style={styles.locationCountry}>{location?.countryName}</Text>
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.locationName}>{location?.cityName}</Text>
+              <Text style={styles.locationCountry}>{location?.countryName}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.viewToggleBtn}
+              onPress={() => setViewMode(v => v === 'list' ? 'chart' : 'list')}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewToggleText}>
+                {viewMode === 'list' ? '📈 Chart' : '☰ List'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Hero — side-by-side today vs 2050 */}
@@ -139,19 +159,27 @@ export default function HomeScreen() {
         {/* Scenario toggle */}
         <ScenarioToggle scenario={scenario} onChange={setScenario} />
 
-        {/* 7-day forecast */}
-        {restDays.length > 0 && (
+        {/* 7-day forecast — list or chart */}
+        {forecast.length > 0 && (
           <View style={styles.forecastCard}>
             <Text style={styles.forecastTitle}>7-day forecast</Text>
-            {forecast.map((day, i) => (
-              <DayForecastRow
-                key={day.date}
-                today={day}
-                future={applyDelta(day, delta)}
-                delta={delta}
-                isFirst={i === 0}
+            {viewMode === 'chart' ? (
+              <TempChart
+                forecast={forecast}
+                delta245={bothDeltas.ssp245}
+                delta585={bothDeltas.ssp585}
               />
-            ))}
+            ) : (
+              forecast.map((day, i) => (
+                <DayForecastRow
+                  key={day.date}
+                  today={day}
+                  future={applyDelta(day, delta)}
+                  delta={delta}
+                  isFirst={i === 0}
+                />
+              ))
+            )}
           </View>
         )}
 
@@ -202,11 +230,21 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8,
   },
+  headerTop: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
   locationName: {
     fontSize: 28, fontWeight: '800', color: '#1A1A1A',
   },
   locationCountry: {
     fontSize: 14, color: '#888', marginTop: 2,
+  },
+  viewToggleBtn: {
+    backgroundColor: '#F0F0F0', paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20,
+  },
+  viewToggleText: {
+    fontSize: 13, fontWeight: '600', color: '#555',
   },
 
   // Hero cards
