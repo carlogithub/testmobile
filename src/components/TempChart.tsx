@@ -5,8 +5,10 @@ import { DayForecast } from '../types';
 
 interface Props {
   forecast: DayForecast[];
-  delta245: number;
-  delta585: number;
+  /** Per-day tas deltas for SSP2-4.5 (one per forecast day, using that day's month) */
+  tasDeltas245: number[];
+  /** Per-day tas deltas for SSP5-8.5 */
+  tasDeltas585: number[];
 }
 
 const ORANGE   = '#FF6B35';
@@ -28,15 +30,15 @@ function toPoints(values: number[], w: number, h: number, minV: number, maxV: nu
     .join(' ');
 }
 
-export default function TempChart({ forecast, delta245, delta585 }: Props) {
+export default function TempChart({ forecast, tasDeltas245, tasDeltas585 }: Props) {
   const svgWidth  = 340;
   const svgHeight = 220;
   const chartW = svgWidth  - PAD.left - PAD.right;
   const chartH = svgHeight - PAD.top  - PAD.bottom;
 
   const todayMaxes  = forecast.map(d => d.maxTemp);
-  const future245   = forecast.map(d => Math.round(d.maxTemp + delta245));
-  const future585   = forecast.map(d => Math.round(d.maxTemp + delta585));
+  const future245   = forecast.map((d, i) => Math.round(d.maxTemp + (tasDeltas245[i] ?? 0)));
+  const future585   = forecast.map((d, i) => Math.round(d.maxTemp + (tasDeltas585[i] ?? 0)));
 
   const allValues = [...todayMaxes, ...future245, ...future585];
   const minV = Math.floor(Math.min(...allValues)) - 1;

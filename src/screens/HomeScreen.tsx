@@ -5,13 +5,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DayForecast, LocationInfo, Scenario } from '../types';
+import { DayForecast, DeltaResult, LocationInfo, Scenario } from '../types';
 import { getCurrentLocation } from '../services/locationService';
 import { fetchForecast, weatherCodeToDisplay } from '../services/weatherApi';
-import { getDeltaForLocation, getBothDeltas } from '../services/climateDelta';
+import { getBothDeltas } from '../services/climateDelta';
 import DayForecastRow from '../components/DayForecastRow';
 import ScenarioToggle from '../components/ScenarioToggle';
 import TempChart from '../components/TempChart';
+import PrecipChart from '../components/PrecipChart';
 
 type Status = 'idle' | 'loading' | 'error' | 'ready';
 type ViewMode = 'list' | 'chart';
@@ -49,19 +50,29 @@ export default function HomeScreen() {
   }, [load]);
 
   // Apply climate delta to a forecast day
-  const applyDelta = (day: DayForecast, delta: number): DayForecast => ({
+  const applyDelta = (day: DayForecast, dr: DeltaResult): DayForecast => ({
     ...day,
-    maxTemp: Math.round(day.maxTemp + delta),
-    minTemp: Math.round(day.minTemp + delta),
+    maxTemp: Math.round(day.maxTemp + dr.tasDelta),
+    minTemp: Math.round(day.minTemp + dr.tasDelta),
   });
 
-  const delta = location
-    ? getDeltaForLocation(location.latitude, location.longitude, scenario)
-    : 0;
+  // Per-day deltas (each day uses its own calendar month)
+  const perDayDeltas = forecast.map(day => {
+    const month = new Date(day.date + 'T12:00:00').getMonth();
+    return location
+      ? getBothDeltas(location.latitude, location.longitude, month)
+      : { ssp245: { tasDelta: 0, prDeltaPct: null }, ssp585: { tasDelta: 0, prDeltaPct: null } };
+  });
 
-  const bothDeltas = location
-    ? getBothDeltas(location.latitude, location.longitude)
-    : { ssp245: 0, ssp585: 0 };
+  const tasDeltas245 = perDayDeltas.map(d => d.ssp245.tasDelta);
+  const tasDeltas585 = perDayDeltas.map(d => d.ssp585.tasDelta);
+
+  // Today's deltas for the hero card
+  const todayDelta: DeltaResult = perDayDeltas[0]?.[scenario] ?? { tasDelta: 0, prDeltaPct: null };
+
+  // Precipitation deltas for the precip chart — use today's month as representative
+  const prDeltaPct245 = perDayDeltas[0]?.ssp245.prDeltaPct ?? null;
+  const prDeltaPct585 = perDayDeltas[0]?.ssp585.prDeltaPct ?? null;
 
   const today    = forecast[0];
   const restDays = forecast.slice(1);
@@ -142,16 +153,25 @@ export default function HomeScreen() {
               </Text>
               <Text style={styles.heroEmoji}>{todayEmoji}</Text>
               <Text style={[styles.heroTemp, styles.futureTemp]}>
-                {applyDelta(today, delta).maxTemp}°
+                {applyDelta(today, todayDelta).maxTemp}°
               </Text>
               <Text style={[styles.heroLow, styles.futureLow]}>
-                Low {applyDelta(today, delta).minTemp}°
+                Low {applyDelta(today, todayDelta).minTemp}°
               </Text>
               <View style={styles.deltaChip}>
                 <Text style={styles.deltaChipText}>
-                  {delta >= 0 ? `+${delta.toFixed(1)}° warmer` : `${delta.toFixed(1)}° cooler`}
+                  {todayDelta.tasDelta >= 0
+                    ? `+${todayDelta.tasDelta.toFixed(1)}° warmer`
+                    : `${todayDelta.tasDelta.toFixed(1)}° cooler`}
                 </Text>
               </View>
+              {todayDelta.prDeltaPct !== null && (
+                <Text style={styles.heroPrecipNote}>
+                  Precip {todayDelta.prDeltaPct >= 0
+                    ? `+${todayDelta.prDeltaPct.toFixed(0)}%`
+                    : `${todayDelta.prDeltaPct.toFixed(0)}%`}
+                </Text>
+              )}
             </View>
           </View>
         )}
@@ -164,18 +184,25 @@ export default function HomeScreen() {
           <View style={styles.forecastCard}>
             <Text style={styles.forecastTitle}>7-day forecast</Text>
             {viewMode === 'chart' ? (
-              <TempChart
-                forecast={forecast}
-                delta245={bothDeltas.ssp245}
-                delta585={bothDeltas.ssp585}
-              />
+              <>
+                <TempChart
+                  forecast={forecast}
+                  tasDeltas245={tasDeltas245}
+                  tasDeltas585={tasDeltas585}
+                />
+                <PrecipChart
+                  forecast={forecast}
+                  prDeltaPct245={prDeltaPct245}
+                  prDeltaPct585={prDeltaPct585}
+                />
+              </>
             ) : (
               forecast.map((day, i) => (
                 <DayForecastRow
                   key={day.date}
                   today={day}
-                  future={applyDelta(day, delta)}
-                  delta={delta}
+                  future={applyDelta(day, perDayDeltas[i][scenario])}
+                  delta={perDayDeltas[i][scenario].tasDelta}
                   isFirst={i === 0}
                 />
               ))
@@ -185,9 +212,10 @@ export default function HomeScreen() {
 
         {/* Footer note */}
         <Text style={styles.footnote}>
-          2050 temperatures use CMIP6 multimodel mean warming signal
+          2050 projections use CMIP6 multimodel mean warming signal
           ({scenario === 'ssp245' ? 'SSP2-4.5 moderate emissions' : 'SSP5-8.5 high emissions'})
-          added to today's ECMWF forecast.
+          applied to today's ECMWF forecast. Temperature: absolute delta (°C).
+          Precipitation: % change; hatched bars indicate low model agreement (&lt;66%).
           {'\n'}Reference: 2010–2024 → 2045–2055.
         </Text>
       </ScrollView>
@@ -288,6 +316,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
   },
   deltaChipText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  heroPrecipNote: { fontSize: 11, color: '#C87050', marginTop: 4 },
 
   // Forecast list
   forecastCard: {
