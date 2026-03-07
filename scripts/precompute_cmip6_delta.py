@@ -133,7 +133,16 @@ def _load_period(col, model, exp_id, variable, start, end):
 
 def _monthly_means(da):
     """Return DataArray of shape (12, nlat, nlon): climatological monthly means."""
-    return da.groupby("time.month").mean("time")
+    import xarray as xr
+    # Manually extract month values — handles cftime heterogeneous calendars
+    # (da.time.dt.month / groupby("time.month") fail after xr.concat across zarr stores)
+    try:
+        month_arr = np.array([t.month for t in da.time.values])
+    except AttributeError:
+        import pandas as pd
+        month_arr = pd.DatetimeIndex(da.time.values).month.to_numpy()
+    months = xr.DataArray(month_arr, coords={"time": da.time}, dims="time")
+    return da.groupby(months).mean("time")
 
 
 def _regrid(da_monthly, out_lats, out_lons):
@@ -271,8 +280,10 @@ def write_json(tas_delta, pr_delta_pct, pr_agreement, scenario):
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import sys
+    scenarios = sys.argv[1:] if len(sys.argv) > 1 else ["ssp245", "ssp585"]
     col = _open_catalogue()
-    for scenario in ["ssp245", "ssp585"]:
+    for scenario in scenarios:
         print(f"\n{'='*55}\n  Computing deltas for {scenario}\n{'='*55}")
         tas_delta, pr_delta_pct, pr_agreement = compute_deltas(col, scenario)
         write_json(tas_delta, pr_delta_pct, pr_agreement, scenario)
