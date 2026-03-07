@@ -98,8 +98,9 @@ export default function PrecipChart({ forecast, prDeltaPct245, prDeltaPct585 }: 
           const maxTick = ticks[ticks.length - 1];
 
           const todayH  = (today / maxTick) * chartH;
-          const h245    = fut245 !== null ? (fut245 / maxTick) * chartH : 0;
-          const h585    = fut585 !== null ? (fut585 / maxTick) * chartH : 0;
+          // When delta uncertain (null), show today's height with hatch to indicate uncertainty
+          const h245    = fut245 !== null ? (fut245 / maxTick) * chartH : todayH;
+          const h585    = fut585 !== null ? (fut585 / maxTick) * chartH : todayH;
 
           return (
             <G key={day.date}>
@@ -112,7 +113,7 @@ export default function PrecipChart({ forecast, prDeltaPct245, prDeltaPct585 }: 
 
               {/* SSP2-4.5 bar — solid blue or hatched */}
               <Rect
-                x={barX(i, 1)} y={fut245 !== null ? yPos(fut245) : PAD.top + chartH}
+                x={barX(i, 1)} y={fut245 !== null ? yPos(fut245) : yPos(today)}
                 width={barW} height={h245}
                 fill={prDeltaPct245 !== null ? BLUE : `url(#${HATCH_ID_245})`}
                 opacity={prDeltaPct245 !== null ? 0.8 : 1}
@@ -129,7 +130,7 @@ export default function PrecipChart({ forecast, prDeltaPct245, prDeltaPct585 }: 
 
               {/* SSP5-8.5 bar — solid red or hatched */}
               <Rect
-                x={barX(i, 2)} y={fut585 !== null ? yPos(fut585) : PAD.top + chartH}
+                x={barX(i, 2)} y={fut585 !== null ? yPos(fut585) : yPos(today)}
                 width={barW} height={h585}
                 fill={prDeltaPct585 !== null ? RED : `url(#${HATCH_ID_585})`}
                 opacity={prDeltaPct585 !== null ? 0.8 : 1}
