@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DayForecast, DeltaResult, LocationInfo, Scenario } from '../types';
 import { getCurrentLocation } from '../services/locationService';
 import { fetchForecast, weatherCodeToDisplay } from '../services/weatherApi';
-import { getBothDeltas } from '../services/climateDelta';
+import { getBothDeltas, isInEuropeanDomain as isInEurope } from '../services/climateDelta';
 import DayForecastRow from '../components/DayForecastRow';
 import ScenarioToggle from '../components/ScenarioToggle';
 import TempChart from '../components/TempChart';
@@ -212,10 +212,14 @@ export default function HomeScreen() {
 
         {/* Footer note */}
         <Text style={styles.footnote}>
-          2050 projections use CMIP6 multimodel mean warming signal
+          2050 projections use{' '}
+          {location && isInEurope(location.latitude, location.longitude)
+            ? 'CORDEX-EUR (21 members, 0.5°)'
+            : 'CMIP6 (9 models, 2°)'}{' '}
+          warming signal
           ({scenario === 'ssp245' ? 'SSP2-4.5 moderate emissions' : 'SSP5-8.5 high emissions'})
           applied to today's ECMWF forecast. Temperature: absolute delta (°C).
-          Precipitation: % change; hatched bars indicate low model agreement (&lt;66%).
+          Precipitation: % change; hatched bars = low model agreement (&lt;66%).
           {'\n'}Reference: 2010–2024 → 2045–2055.
         </Text>
       </ScrollView>

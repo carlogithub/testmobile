@@ -1,12 +1,41 @@
 import { ClimateDeltas, DeltaResult, Scenario } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const DELTAS_SSP245: ClimateDeltas = require('../../assets/data/delta_ssp245.json');
+const CMIP6_SSP245: ClimateDeltas = require('../../assets/data/delta_ssp245.json');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const DELTAS_SSP585: ClimateDeltas = require('../../assets/data/delta_ssp585.json');
+const CMIP6_SSP585: ClimateDeltas = require('../../assets/data/delta_ssp585.json');
 
-function getDeltas(scenario: Scenario): ClimateDeltas {
-  return scenario === 'ssp245' ? DELTAS_SSP245 : DELTAS_SSP585;
+// CORDEX-EUR files — bundled once generated; null-guarded below until available
+let CORDEX_SSP245: ClimateDeltas | null = null;
+let CORDEX_SSP585: ClimateDeltas | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  CORDEX_SSP245 = require('../../assets/data/delta_cordex_ssp245.json');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  CORDEX_SSP585 = require('../../assets/data/delta_cordex_ssp585.json');
+} catch {
+  // CORDEX JSONs not yet generated — fall back to CMIP6 globally
+}
+
+/**
+ * European domain for CORDEX routing.
+ * Within this box, CORDEX-EUR data is preferred (higher resolution, RCM physics).
+ */
+const CORDEX_DOMAIN = { latMin: 27, latMax: 72, lonMin: -22, lonMax: 45 };
+
+export function isInEuropeanDomain(latitude: number, longitude: number): boolean {
+  return (
+    latitude  >= CORDEX_DOMAIN.latMin && latitude  <= CORDEX_DOMAIN.latMax &&
+    longitude >= CORDEX_DOMAIN.lonMin && longitude <= CORDEX_DOMAIN.lonMax
+  );
+}
+
+function getDeltas(scenario: Scenario, latitude: number, longitude: number): ClimateDeltas {
+  if (isInEuropeanDomain(latitude, longitude)) {
+    const cordex = scenario === 'ssp245' ? CORDEX_SSP245 : CORDEX_SSP585;
+    if (cordex?.tas?.monthly_delta) return cordex;
+  }
+  return scenario === 'ssp245' ? CMIP6_SSP245 : CMIP6_SSP585;
 }
 
 /**
@@ -66,16 +95,8 @@ export function getDeltaForLocation(
   scenario: Scenario,
   month: number,
 ): DeltaResult {
-  const d = getDeltas(scenario);
+  const d = getDeltas(scenario, latitude, longitude);
   const { lats, lons, resolution, tas, pr } = d;
-
-  // Placeholder JSON not yet replaced — return a plausible default
-  if (!tas?.monthly_delta) {
-    return {
-      tasDelta:   scenario === 'ssp245' ? 1.5 : 2.5,
-      prDeltaPct: null,
-    };
-  }
 
   const tasDelta = interpolate(
     tas.monthly_delta[month], lats, lons, resolution, latitude, longitude,
