@@ -4,6 +4,8 @@ import {
   TouchableOpacity, RefreshControl, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../../App';
 
 import { DayForecast, DeltaResult, LocationInfo, Scenario } from '../types';
 import { getCurrentLocation } from '../services/locationService';
@@ -17,7 +19,9 @@ import PrecipChart from '../components/PrecipChart';
 type Status = 'idle' | 'loading' | 'error' | 'ready';
 type ViewMode = 'list' | 'chart';
 
-export default function HomeScreen() {
+type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+
+export default function HomeScreen({ navigation }: Props) {
   const [status, setStatus]     = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [location, setLocation] = useState<LocationInfo | null>(null);
@@ -122,15 +126,26 @@ export default function HomeScreen() {
               <Text style={styles.locationName}>{location?.cityName}</Text>
               <Text style={styles.locationCountry}>{location?.countryName}</Text>
             </View>
-            <TouchableOpacity
-              style={styles.viewToggleBtn}
-              onPress={() => setViewMode(v => v === 'list' ? 'chart' : 'list')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.viewToggleText}>
-                {viewMode === 'list' ? '📈 Chart' : '☰ List'}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.headerButtons}>
+              <TouchableOpacity
+                style={styles.viewToggleBtn}
+                onPress={() => setViewMode(v => v === 'list' ? 'chart' : 'list')}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.viewToggleText}>
+                  {viewMode === 'list' ? '📈 Chart' : '☰ List'}
+                </Text>
+              </TouchableOpacity>
+              {location && forecast.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.viewToggleBtn, styles.contextBtn]}
+                  onPress={() => navigation.navigate('ClimateContext', { location, forecast })}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.viewToggleText}>🌡 Context</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
 
@@ -271,9 +286,15 @@ const styles = StyleSheet.create({
   locationCountry: {
     fontSize: 14, color: '#888', marginTop: 2,
   },
+  headerButtons: {
+    flexDirection: 'row', gap: 8,
+  },
   viewToggleBtn: {
     backgroundColor: '#F0F0F0', paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: 20,
+  },
+  contextBtn: {
+    backgroundColor: '#FFF0EB',
   },
   viewToggleText: {
     fontSize: 13, fontWeight: '600', color: '#555',

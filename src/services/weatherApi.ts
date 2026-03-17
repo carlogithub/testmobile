@@ -10,6 +10,7 @@ interface OpenMeteoResponse {
     temperature_2m_min:    number[];
     weathercode:           number[];
     precipitation_sum:     number[];
+    wind_speed_10m_max:    number[];
   };
 }
 
@@ -23,7 +24,8 @@ export async function fetchForecast(
   const params = new URLSearchParams({
     latitude:      latitude.toString(),
     longitude:     longitude.toString(),
-    daily:         'temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum',
+    daily:         'temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum,wind_speed_10m_max',
+    wind_speed_unit: 'ms',
     timezone:      'auto',
     models:        MODEL,
     forecast_days: '7',
@@ -35,7 +37,8 @@ export async function fetchForecast(
   }
 
   const data: OpenMeteoResponse = await response.json();
-  const { time, temperature_2m_max, temperature_2m_min, weathercode, precipitation_sum } = data.daily;
+  const { time, temperature_2m_max, temperature_2m_min, weathercode,
+          precipitation_sum, wind_speed_10m_max } = data.daily;
 
   return time.map((dateStr, i) => ({
     date:        dateStr,
@@ -44,6 +47,7 @@ export async function fetchForecast(
     minTemp:     Math.round(temperature_2m_min[i]),
     weatherCode: weathercode[i],
     precipMm:    Math.round((precipitation_sum[i] ?? 0) * 10) / 10,
+    windSpeed:   Math.round((wind_speed_10m_max[i] ?? 0) * 10) / 10,
   }));
 }
 

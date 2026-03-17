@@ -7,6 +7,25 @@ export interface DayForecast {
   minTemp: number;      // °C
   weatherCode: number;  // WMO weather interpretation code
   precipMm: number;     // mm/day
+  windSpeed: number;    // m/s daily max
+}
+
+// ── Climate context (anomaly vs ERA5 climatology) ─────────────────────────────
+
+export interface AnomalyResult {
+  percentile: number;          // 0–100
+  returnPeriod: number;        // years
+  tail: 'high' | 'low' | 'median';
+  label: string;               // e.g. "Top 5%", "Near normal"
+}
+
+export interface DayClimateContext {
+  date: string;
+  tmax:   AnomalyResult | null;
+  tmin:   AnomalyResult | null;
+  precip: AnomalyResult | null;
+  wind:   AnomalyResult | null;
+  nSamples: number;
 }
 
 export interface LocationInfo {
