@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Weather 2050",
+    "slug": "weather-2050",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FF6B35"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.personal.weather2050",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Weather 2050 uses your location to show you the local forecast and its 2050 climate-adjusted equivalent.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FF6B35"
+      },
+      "package": "com.personal.weather2050",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Weather 2050 uses your location to show the local forecast and its 2050 climate-adjusted equivalent."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e406b298-29c0-41ea-b314-de1d129fef20"
+      }
+    }
+  }
+}
