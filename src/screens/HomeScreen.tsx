@@ -1,3 +1,22 @@
+/**
+ * HomeScreen — the main screen of the Weather 2050 app.
+ *
+ * Layout (top to bottom):
+ *   1. Header — city name + "Climate Context" button
+ *   2. Hero cards — today's forecast side-by-side with the 2050 projection
+ *   3. Temperature chart — 7-day bars with hot/cold day threshold lines
+ *   4. Precipitation chart — 7-day bars with heavy-rain threshold line
+ *   5. Footnote — data sources
+ *
+ * Climate projections use the SSP2-4.5 "middle road" emissions scenario
+ * and CMIP6 / CORDEX-EUR delta data bundled inside the app (no network
+ * call needed for the 2050 signal).
+ *
+ * The ERA5 historical thresholds (90th / 10th percentile lines) are
+ * fetched in the background on first load and cached on the device.
+ * The charts display immediately without them and add the lines once ready.
+ */
+
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
@@ -7,28 +26,29 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../App';
 
-import { DayForecast, DeltaResult, LocationInfo, Scenario } from '../types';
-import { getCurrentLocation } from '../services/locationService';
+import { DayForecast, DeltaResult, LocationInfo } from '../types';
+import { getCurrentLocation }               from '../services/locationService';
 import { fetchForecast, weatherCodeToDisplay } from '../services/weatherApi';
-import { getBothDeltas, isInEuropeanDomain as isInEurope } from '../services/climateDelta';
-import DayForecastRow from '../components/DayForecastRow';
-import ScenarioToggle from '../components/ScenarioToggle';
-import TempChart from '../components/TempChart';
-import PrecipChart from '../components/PrecipChart';
+import { getDeltaForLocation, isInEuropeanDomain as isInEurope } from '../services/climateDelta';
+import { getWeeklyThresholds, WeeklyThresholds } from '../services/climateContext';
+import WeeklyThresholdChart from '../components/WeeklyThresholdChart';
 
 type Status = 'idle' | 'loading' | 'error' | 'ready';
-type ViewMode = 'list' | 'chart';
+type Props  = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+// ── Component ──────────────────────────────────────────────────────────────────
 
 export default function HomeScreen({ navigation }: Props) {
-  const [status, setStatus]     = useState<Status>('idle');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [location, setLocation] = useState<LocationInfo | null>(null);
-  const [forecast, setForecast] = useState<DayForecast[]>([]);
-  const [scenario, setScenario] = useState<Scenario>('ssp245');
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [status,     setStatus]     = useState<Status>('idle');
+  const [errorMsg,   setErrorMsg]   = useState('');
+  const [location,   setLocation]   = useState<LocationInfo | null>(null);
+  const [forecast,   setForecast]   = useState<DayForecast[]>([]);
+  const [thresholds, setThresholds] = useState<WeeklyThresholds | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // ── Data loading ───────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     try {
@@ -45,7 +65,19 @@ export default function HomeScreen({ navigation }: Props) {
     }
   }, []);
 
+  // Load forecast on mount
   useEffect(() => { load(); }, [load]);
+
+  // Once we have location + forecast, kick off the ERA5 threshold fetch
+  // in the background.  This may take ~30s on first use but the result
+  // is cached on the device forever after (keyed to the 0.5° grid cell).
+  useEffect(() => {
+    if (!location || forecast.length === 0) return;
+    const refDate = new Date(forecast[0].date + 'T12:00:00');
+    getWeeklyThresholds(location.latitude, location.longitude, refDate)
+      .then(setThresholds)
+      .catch(() => {}); // fail silently — chart degrades gracefully without thresholds
+  }, [location, forecast]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -53,35 +85,32 @@ export default function HomeScreen({ navigation }: Props) {
     setRefreshing(false);
   }, [load]);
 
-  // Apply climate delta to a forecast day
-  const applyDelta = (day: DayForecast, dr: DeltaResult): DayForecast => ({
-    ...day,
-    maxTemp: Math.round(day.maxTemp + dr.tasDelta),
-    minTemp: Math.round(day.minTemp + dr.tasDelta),
+  // ── Climate signal computation ─────────────────────────────────────────────
+  //
+  // For each of the 7 forecast days, look up the SSP2-4.5 warming delta
+  // for that day's calendar month.  This gives a per-day temperature shift
+  // and precipitation % change.
+
+  const perDayDeltas: DeltaResult[] = forecast.map(day => {
+    if (!location) return { tasDelta: 0, prDeltaPct: null };
+    const month = new Date(day.date + 'T12:00:00').getMonth(); // 0=Jan … 11=Dec
+    return getDeltaForLocation(location.latitude, location.longitude, 'ssp245', month);
   });
 
-  // Per-day deltas (each day uses its own calendar month)
-  const perDayDeltas = forecast.map(day => {
-    const month = new Date(day.date + 'T12:00:00').getMonth();
-    return location
-      ? getBothDeltas(location.latitude, location.longitude, month)
-      : { ssp245: { tasDelta: 0, prDeltaPct: null }, ssp585: { tasDelta: 0, prDeltaPct: null } };
+  // 2050 maximum temperature for each forecast day (used in the temp chart)
+  const futureMaxTemps: number[] = forecast.map(
+    (day, i) => day.maxTemp + perDayDeltas[i].tasDelta,
+  );
+
+  // 2050 precipitation for each day.
+  // null = model agreement too low to show a signal (chart bar is hidden)
+  const futurePrecips: (number | null)[] = forecast.map((day, i) => {
+    const pct = perDayDeltas[i].prDeltaPct;
+    return pct !== null ? day.precipMm * (1 + pct / 100) : null;
   });
 
-  const tasDeltas245 = perDayDeltas.map(d => d.ssp245.tasDelta);
-  const tasDeltas585 = perDayDeltas.map(d => d.ssp585.tasDelta);
-
-  // Today's deltas for the hero card
-  const todayDelta: DeltaResult = perDayDeltas[0]?.[scenario] ?? { tasDelta: 0, prDeltaPct: null };
-
-  // Precipitation deltas for the precip chart — use today's month as representative
-  const prDeltaPct245 = perDayDeltas[0]?.ssp245.prDeltaPct ?? null;
-  const prDeltaPct585 = perDayDeltas[0]?.ssp585.prDeltaPct ?? null;
-
-  const today    = forecast[0];
-  const restDays = forecast.slice(1);
-  const { emoji: todayEmoji, description: todayDesc } =
-    today ? weatherCodeToDisplay(today.weatherCode) : { emoji: '🌡️', description: '' };
+  // Today's delta (used in the hero card)
+  const todayDelta: DeltaResult = perDayDeltas[0] ?? { tasDelta: 0, prDeltaPct: null };
 
   // ── Loading / error states ─────────────────────────────────────────────────
 
@@ -89,7 +118,7 @@ export default function HomeScreen({ navigation }: Props) {
     return (
       <View style={styles.centred}>
         <Text style={styles.loadingEmoji}>🌍</Text>
-        <ActivityIndicator size="large" color="#FF6B35" style={{ marginTop: 16 }} />
+        <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 16 }} />
         <Text style={styles.loadingText}>Locating you…</Text>
       </View>
     );
@@ -109,50 +138,44 @@ export default function HomeScreen({ navigation }: Props) {
 
   // ── Main UI ────────────────────────────────────────────────────────────────
 
+  const today = forecast[0];
+  const { emoji: todayEmoji, description: todayDesc } =
+    today ? weatherCodeToDisplay(today.weatherCode) : { emoji: '🌡️', description: '' };
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-            tintColor="#FF6B35" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ORANGE} />
         }
       >
-        {/* Header */}
+
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text style={styles.locationName}>{location?.cityName}</Text>
-              <Text style={styles.locationCountry}>{location?.countryName}</Text>
-            </View>
-            <View style={styles.headerButtons}>
-              <TouchableOpacity
-                style={styles.viewToggleBtn}
-                onPress={() => setViewMode(v => v === 'list' ? 'chart' : 'list')}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.viewToggleText}>
-                  {viewMode === 'list' ? '📈 Chart' : '☰ List'}
-                </Text>
-              </TouchableOpacity>
-              {location && forecast.length > 0 && (
-                <TouchableOpacity
-                  style={[styles.viewToggleBtn, styles.contextBtn]}
-                  onPress={() => navigation.navigate('ClimateContext', { location, forecast })}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.viewToggleText}>🌡 Context</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+          <View>
+            <Text style={styles.locationName}>{location?.cityName}</Text>
+            <Text style={styles.locationCountry}>{location?.countryName}</Text>
           </View>
+
+          {/* Button to the Climate Context screen */}
+          {location && forecast.length > 0 && (
+            <TouchableOpacity
+              style={styles.contextBtn}
+              onPress={() => navigation.navigate('ClimateContext', { location, forecast })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.contextBtnText}>🌡 How unusual is this week?</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Hero — side-by-side today vs 2050 */}
+        {/* ── Hero cards — today vs 2050 ───────────────────────────────────── */}
         {today && (
           <View style={styles.heroRow}>
-            {/* Today card */}
+
+            {/* Today */}
             <View style={[styles.heroCard, styles.todayCard]}>
               <Text style={styles.heroLabel}>Today</Text>
               <Text style={styles.heroEmoji}>{todayEmoji}</Text>
@@ -161,18 +184,18 @@ export default function HomeScreen({ navigation }: Props) {
               <Text style={styles.heroDesc}>{todayDesc}</Text>
             </View>
 
-            {/* 2050 card */}
+            {/* 2050 SSP2-4.5 */}
             <View style={[styles.heroCard, styles.futureCard]}>
-              <Text style={[styles.heroLabel, styles.futureLabelText]}>
-                2050 ✦
-              </Text>
+              <Text style={[styles.heroLabel, styles.futureLabelText]}>2050 ✦</Text>
               <Text style={styles.heroEmoji}>{todayEmoji}</Text>
               <Text style={[styles.heroTemp, styles.futureTemp]}>
-                {applyDelta(today, todayDelta).maxTemp}°
+                {Math.round(today.maxTemp + todayDelta.tasDelta)}°
               </Text>
               <Text style={[styles.heroLow, styles.futureLow]}>
-                Low {applyDelta(today, todayDelta).minTemp}°
+                Low {Math.round(today.minTemp + todayDelta.tasDelta)}°
               </Text>
+
+              {/* Temperature delta chip */}
               <View style={styles.deltaChip}>
                 <Text style={styles.deltaChipText}>
                   {todayDelta.tasDelta >= 0
@@ -180,6 +203,8 @@ export default function HomeScreen({ navigation }: Props) {
                     : `${todayDelta.tasDelta.toFixed(1)}° cooler`}
                 </Text>
               </View>
+
+              {/* Precipitation change — hidden if model agreement is too low */}
               {todayDelta.prDeltaPct !== null && (
                 <Text style={styles.heroPrecipNote}>
                   Precip {todayDelta.prDeltaPct >= 0
@@ -188,182 +213,125 @@ export default function HomeScreen({ navigation }: Props) {
                 </Text>
               )}
             </View>
+
           </View>
         )}
 
-        {/* Scenario toggle */}
-        <ScenarioToggle scenario={scenario} onChange={setScenario} />
-
-        {/* 7-day forecast — list or chart */}
+        {/* ── Temperature threshold chart ──────────────────────────────────── */}
         {forecast.length > 0 && (
-          <View style={styles.forecastCard}>
-            <Text style={styles.forecastTitle}>7-day forecast</Text>
-            {viewMode === 'chart' ? (
-              <>
-                <TempChart
-                  forecast={forecast}
-                  tasDeltas245={tasDeltas245}
-                  tasDeltas585={tasDeltas585}
-                />
-                <PrecipChart
-                  forecast={forecast}
-                  prDeltaPct245={prDeltaPct245}
-                  prDeltaPct585={prDeltaPct585}
-                />
-              </>
-            ) : (
-              forecast.map((day, i) => (
-                <DayForecastRow
-                  key={day.date}
-                  today={day}
-                  future={applyDelta(day, perDayDeltas[i][scenario])}
-                  delta={perDayDeltas[i][scenario].tasDelta}
-                  isFirst={i === 0}
-                />
-              ))
-            )}
-          </View>
+          <WeeklyThresholdChart
+            forecast={forecast}
+            todayValues={forecast.map(d => d.maxTemp)}
+            futureValues={futureMaxTemps}
+            thresholds={thresholds}
+            unit="°C"
+            title="Temperature this week"
+            isPrecip={false}
+          />
         )}
 
-        {/* Footer note */}
+        {/* ── Precipitation threshold chart ────────────────────────────────── */}
+        {forecast.length > 0 && (
+          <WeeklyThresholdChart
+            forecast={forecast}
+            todayValues={forecast.map(d => d.precipMm)}
+            futureValues={futurePrecips}
+            thresholds={thresholds}
+            unit="mm"
+            title="Precipitation this week"
+            isPrecip={true}
+          />
+        )}
+
+        {/* ── Footnote ─────────────────────────────────────────────────────── */}
         <Text style={styles.footnote}>
-          2050 projections use{' '}
+          2050 projection uses{' '}
           {location && isInEurope(location.latitude, location.longitude)
-            ? 'CORDEX-EUR (21 members, 0.5°)'
-            : 'CMIP6 (9 models, 2°)'}{' '}
-          warming signal
-          ({scenario === 'ssp245' ? 'SSP2-4.5 moderate emissions' : 'SSP5-8.5 high emissions'})
-          applied to today's ECMWF forecast. Temperature: absolute delta (°C).
-          Precipitation: % change; hatched bars = low model agreement (&lt;66%).
-          {'\n'}Reference: 2010–2024 → 2045–2055.
+            ? 'CORDEX-EUR (0.5°, RCP4.5)'
+            : 'CMIP6 (2°, SSP2-4.5)'}{' '}
+          warming signal applied to today's ECMWF forecast.{'\n'}
+          Baseline 2010–2024 → future 2045–2055.
+          Precipitation hidden where model agreement &lt; 66%.{'\n'}
+          ERA5 thresholds: 1979–2024 · Open-Meteo Historical API.
         </Text>
+
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
+// ── Styles ─────────────────────────────────────────────────────────────────────
 
-const ORANGE = '#FF6B35';
+const ORANGE      = '#FF6B35';
 const DARK_ORANGE = '#D44000';
-const CREAM  = '#FFF8F5';
+const CREAM       = '#FFF8F5';
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#F7F7F7',
-  },
-  scroll: { flex: 1 },
-  scrollContent: {
-    paddingBottom: 40,
-  },
+  safe:          { flex: 1, backgroundColor: '#F7F7F7' },
+  scroll:        { flex: 1 },
+  scrollContent: { paddingBottom: 40 },
 
   // Loading / error
-  centred: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#F7F7F7',
-  },
+  centred:      { flex: 1, alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: '#F7F7F7' },
   loadingEmoji: { fontSize: 64 },
   loadingText:  { marginTop: 12, color: '#888', fontSize: 15 },
-  errorText:    { marginTop: 12, color: '#555', fontSize: 15, textAlign: 'center',
-                  paddingHorizontal: 32 },
-  retryBtn: {
-    marginTop: 20, backgroundColor: ORANGE,
-    paddingHorizontal: 28, paddingVertical: 12, borderRadius: 24,
-  },
-  retryText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  errorText:    { marginTop: 12, color: '#555', fontSize: 15,
+                  textAlign: 'center', paddingHorizontal: 32 },
+  retryBtn:     { marginTop: 20, backgroundColor: ORANGE,
+                  paddingHorizontal: 28, paddingVertical: 12, borderRadius: 24 },
+  retryText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   // Header
   header: {
     paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
   },
-  headerTop: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-  },
-  locationName: {
-    fontSize: 28, fontWeight: '800', color: '#1A1A1A',
-  },
-  locationCountry: {
-    fontSize: 14, color: '#888', marginTop: 2,
-  },
-  headerButtons: {
-    flexDirection: 'row', gap: 8,
-  },
-  viewToggleBtn: {
-    backgroundColor: '#F0F0F0', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20,
-  },
+  locationName:    { fontSize: 28, fontWeight: '800', color: '#1A1A1A' },
+  locationCountry: { fontSize: 14, color: '#888', marginTop: 2 },
+
+  // "How unusual is this week?" button — more descriptive than the old small pill
   contextBtn: {
     backgroundColor: '#FFF0EB',
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 16, marginTop: 4, maxWidth: 160,
   },
-  viewToggleText: {
-    fontSize: 13, fontWeight: '600', color: '#555',
+  contextBtnText: {
+    fontSize: 12, fontWeight: '600', color: ORANGE,
+    textAlign: 'center', lineHeight: 16,
   },
 
   // Hero cards
   heroRow: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
-    marginVertical: 12,
-    gap: 10,
+    flexDirection: 'row', marginHorizontal: 16, marginVertical: 12, gap: 10,
   },
   heroCard: {
     flex: 1, borderRadius: 20, padding: 18, alignItems: 'center',
     ...Platform.select({
-      ios: {
-        shadowColor: '#000', shadowOpacity: 0.08,
-        shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
-      },
+      ios:     { shadowColor: '#000', shadowOpacity: 0.08,
+                 shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 4 },
     }),
   },
-  todayCard: {
-    backgroundColor: '#fff',
-  },
-  futureCard: {
-    backgroundColor: CREAM,
-    borderWidth: 1.5,
-    borderColor: ORANGE,
-  },
-  heroLabel: {
-    fontSize: 12, fontWeight: '700', color: '#999',
-    textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6,
-  },
+  todayCard:       { backgroundColor: '#fff' },
+  futureCard:      { backgroundColor: CREAM, borderWidth: 1.5, borderColor: ORANGE },
+  heroLabel:       { fontSize: 12, fontWeight: '700', color: '#999',
+                     textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 },
   futureLabelText: { color: ORANGE },
-  heroEmoji: { fontSize: 44, marginBottom: 6 },
-  heroTemp: { fontSize: 52, fontWeight: '800', color: '#1A1A1A', lineHeight: 56 },
-  futureTemp: { color: DARK_ORANGE },
-  heroLow: { fontSize: 14, color: '#999', marginTop: 2 },
-  futureLow: { color: '#C87050' },
-  heroDesc: { fontSize: 12, color: '#AAA', marginTop: 6 },
-  deltaChip: {
-    marginTop: 8, backgroundColor: ORANGE,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-  },
-  deltaChipText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  heroPrecipNote: { fontSize: 11, color: '#C87050', marginTop: 4 },
-
-  // Forecast list
-  forecastCard: {
-    backgroundColor: '#fff', marginHorizontal: 16, marginTop: 4,
-    borderRadius: 20, overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000', shadowOpacity: 0.06,
-        shadowRadius: 10, shadowOffset: { width: 0, height: 3 },
-      },
-      android: { elevation: 3 },
-    }),
-  },
-  forecastTitle: {
-    fontSize: 13, fontWeight: '700', color: '#999',
-    textTransform: 'uppercase', letterSpacing: 0.8,
-    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4,
-  },
+  heroEmoji:       { fontSize: 44, marginBottom: 6 },
+  heroTemp:        { fontSize: 52, fontWeight: '800', color: '#1A1A1A', lineHeight: 56 },
+  futureTemp:      { color: DARK_ORANGE },
+  heroLow:         { fontSize: 14, color: '#999', marginTop: 2 },
+  futureLow:       { color: '#C87050' },
+  heroDesc:        { fontSize: 12, color: '#AAA', marginTop: 6 },
+  deltaChip:       { marginTop: 8, backgroundColor: ORANGE,
+                     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  deltaChipText:   { color: '#fff', fontSize: 12, fontWeight: '700' },
+  heroPrecipNote:  { fontSize: 11, color: '#C87050', marginTop: 4 },
 
   // Footnote
   footnote: {
-    marginHorizontal: 24, marginTop: 20,
+    marginHorizontal: 24, marginTop: 16,
     fontSize: 11, color: '#BBB', lineHeight: 16, textAlign: 'center',
   },
 });

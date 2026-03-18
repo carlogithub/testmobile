@@ -138,7 +138,63 @@ function computeAnomaly(value: number | null, sample: number[]): AnomalyResult |
   return { percentile: pct, returnPeriod, tail, label };
 }
 
+// ── Percentile value (inverse of percentileOfScore) ──────────────────────────
+//
+// Given a sorted sample and a target percentile (0–100), return the
+// interpolated value at that position in the distribution.
+// Example: valueAtPercentile([10,15,20,25,30], 90) ≈ 28
+
+function valueAtPercentile(sample: number[], pct: number): number {
+  if (sample.length === 0) return 0;
+  const sorted = [...sample].sort((a, b) => a - b);
+  // Map the percentile (0–100) to an index in the sorted array
+  const idx = (pct / 100) * (sorted.length - 1);
+  const lo  = Math.floor(idx);
+  const hi  = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  // Linear interpolation between the two nearest ranks
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+// ── Weekly threshold type ─────────────────────────────────────────────────────
+
+export interface WeeklyThresholds {
+  /** Temperature above which a day is considered a "hot day" at this location */
+  tmax90: number;
+  /** Temperature below which a day is considered a "cold day" at this location */
+  tmax10: number;
+  /** Precipitation above which a day is considered a "heavy rain day" */
+  precip90: number;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch (or retrieve from device cache) ERA5 history and compute the
+ * 10th and 90th percentile thresholds for temperature and precipitation
+ * at the given location for the given time of year.
+ *
+ * These thresholds define what "hot", "cold", and "heavy rain" mean
+ * locally — they are different for London in March vs Cairo in July.
+ *
+ * Uses the same ±15-day calendar window and 1979–2024 ERA5 dataset
+ * as the Climate Context screen, so the data is already cached after
+ * the first call.
+ */
+export async function getWeeklyThresholds(
+  lat: number,
+  lon: number,
+  referenceDate: Date,
+): Promise<WeeklyThresholds> {
+  const historicalDays = await fetchHistoricalData(lat, lon);
+  const sample         = getClimateSample(historicalDays, referenceDate);
+
+  return {
+    tmax90:   valueAtPercentile(sample.tmax,   90),
+    tmax10:   valueAtPercentile(sample.tmax,   10),
+    precip90: valueAtPercentile(sample.precip, 90),
+  };
+}
 
 export async function getClimateContext(
   lat: number,
