@@ -6,9 +6,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { DayForecast, DayClimateContext } from '../types';
+import { DayForecast, DayClimateContext, DeltaResult } from '../types';
 import { getClimateContext } from '../services/climateContext';
+import { getDeltaForLocation } from '../services/climateDelta';
+import { checkTempConsistency, checkPrecipConsistency } from '../services/consistencyCheck';
 import AnomalyBadge from '../components/AnomalyBadge';
+import ConsistencyChip from '../components/ConsistencyChip';
 import { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ClimateContext'>;
@@ -26,6 +29,12 @@ export default function ClimateContextScreen({ route, navigation }: Props) {
   const [context,  setContext]  = useState<DayClimateContext[] | null>(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
+
+  // SSP5-8.5 deltas per day (sync, from bundled JSON) — used for consistency check
+  const deltasPerDay: DeltaResult[] = forecast.slice(0, 4).map(day => {
+    const month = new Date(day.date + 'T12:00:00').getMonth();
+    return getDeltaForLocation(location.latitude, location.longitude, 'ssp585', month);
+  });
 
   useEffect(() => {
     getClimateContext(location.latitude, location.longitude, forecast)
@@ -72,12 +81,17 @@ export default function ClimateContextScreen({ route, navigation }: Props) {
           </Text>
 
           {context.map((dayCtx, i) => {
-            const day = forecast[i];
+            const day   = forecast[i];
+            const delta = deltasPerDay[i];
             const dateLabel = i === 0
               ? 'Today'
               : new Date(day.date + 'T12:00:00').toLocaleDateString('en-GB', {
                   weekday: 'short', day: 'numeric', month: 'short',
                 });
+
+            // Consistency results — only for temp and precip (no CMIP6 wind projection)
+            const tempConsistency   = dayCtx.tmax   ? checkTempConsistency(dayCtx.tmax, delta)   : null;
+            const precipConsistency = dayCtx.precip ? checkPrecipConsistency(dayCtx.precip, delta) : null;
 
             return (
               <View key={dayCtx.date} style={styles.dayCard}>
@@ -87,12 +101,20 @@ export default function ClimateContextScreen({ route, navigation }: Props) {
                 </View>
 
                 {VARS.map(({ key, label, unit, value }) => (
-                  <View key={key} style={styles.varRow}>
-                    <Text style={styles.varLabel}>{label}</Text>
-                    <Text style={styles.varValue}>
-                      {value(day).toFixed(1)} {unit}
-                    </Text>
-                    <AnomalyBadge anomaly={dayCtx[key] as any} />
+                  <View key={key} style={styles.varBlock}>
+                    <View style={styles.varRow}>
+                      <Text style={styles.varLabel}>{label}</Text>
+                      <Text style={styles.varValue}>
+                        {value(day).toFixed(1)} {unit}
+                      </Text>
+                      <AnomalyBadge anomaly={dayCtx[key] as any} />
+                    </View>
+                    {key === 'tmax'   && tempConsistency   && (
+                      <ConsistencyChip result={tempConsistency} />
+                    )}
+                    {key === 'precip' && precipConsistency && (
+                      <ConsistencyChip result={precipConsistency} />
+                    )}
                   </View>
                 ))}
               </View>
@@ -100,9 +122,9 @@ export default function ClimateContextScreen({ route, navigation }: Props) {
           })}
 
           <Text style={styles.footnote}>
-            Source: Open-Meteo Historical Weather API (ERA5 reanalysis).
-            Percentile computed over ±15-day calendar window across 1979–2024.
-            Cached on device by location.
+            Percentiles: Open-Meteo / ERA5 reanalysis, ±15-day window, 1979–2024.{'\n'}
+            Trend consistency: CMIP6/CORDEX SSP5-8.5 delta vs ERA5 baseline.{'\n'}
+            Single-day weather ≠ climate signal — direction only.
           </Text>
         </ScrollView>
       )}
@@ -164,10 +186,12 @@ const styles = StyleSheet.create({
   dayLabel:   { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
   daySamples: { fontSize: 11, color: '#BBB' },
 
+  varBlock: {
+    paddingVertical: 4,
+  },
   varRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
   },
   varLabel: { flex: 1, fontSize: 14, color: '#555' },
   varValue: { fontSize: 14, fontWeight: '600', color: '#1A1A1A', marginRight: 10, minWidth: 60, textAlign: 'right' },
