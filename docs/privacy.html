@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Weather 2050</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 680px;
+           margin: 40px auto; padding: 0 24px; color: #222; line-height: 1.7; }
+    h1   { font-size: 1.6rem; }
+    h2   { font-size: 1.1rem; margin-top: 2rem; }
+    hr   { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }
+    table{ border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #ddd; padding: 8px 12px; font-size: 0.9rem; }
+    th   { background: #f5f5f5; }
+    a    { color: #FF6B35; }
+  </style>
+</head>
+<body>
+
+<h1>Privacy Policy — Weather 2050</h1>
+<p><strong>Last updated: March 2026</strong></p>
+<p>Weather 2050 is a personal, non-commercial app built for learning purposes.
+It is free to use and contains no advertising.</p>
+
+<hr>
+
+<h2>What data the app accesses</h2>
+<p><strong>Location</strong><br>
+The app requests your device's GPS location once per session (and on manual
+refresh). Your coordinates are used solely to:</p>
+<ul>
+  <li>fetch a 7-day weather forecast from the Open-Meteo API (open-meteo.com), and</li>
+  <li>look up the nearest grid cell in the bundled CMIP6/CORDEX climate delta dataset.</li>
+</ul>
+<p>Your location is never stored on any server, never shared with third parties
+beyond the API call described above, and never used for advertising or tracking.</p>
+
+<hr>
+
+<h2>What data is stored on your device</h2>
+<p>The app caches ERA5 historical climate data (temperature and precipitation
+statistics for your approximate location, rounded to the nearest 0.5° grid cell)
+in the device's local storage. This avoids repeated network calls. The cache
+contains no personally identifiable information and can be cleared by
+uninstalling the app.</p>
+
+<hr>
+
+<h2>Third-party services</h2>
+<p>The app makes network requests to:</p>
+<table>
+  <tr><th>Service</th><th>Purpose</th><th>Privacy policy</th></tr>
+  <tr>
+    <td>Open-Meteo (open-meteo.com)</td>
+    <td>Weather forecast &amp; ERA5 historical data</td>
+    <td><a href="https://open-meteo.com/en/terms">open-meteo.com/en/terms</a></td>
+  </tr>
+</table>
+<p>No analytics SDKs, crash-reporting tools, or advertising frameworks are
+included in this app.</p>
+
+<hr>
+
+<h2>Children's privacy</h2>
+<p>This app does not knowingly collect any information from children under 13.</p>
+
+<hr>
+
+<h2>Changes to this policy</h2>
+<p>If the app's data practices change materially, this page will be updated and
+the "Last updated" date revised.</p>
+
+<hr>
+
+<h2>Contact</h2>
+<p>Questions or concerns? Open an issue on the project's
+<a href="https://github.com/carlogithub/testmobile">GitHub repository</a>
+or contact the developer directly.</p>
+
+</body>
+</html>
